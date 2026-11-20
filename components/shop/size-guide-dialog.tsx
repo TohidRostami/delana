@@ -91,7 +91,7 @@ export function SizeGuideDialog({
             </div>
           )}
 
-          <div className="grid gap-2.5 sm:grid-cols-3">
+          <div className="overflow-x-auto grid gap-2.5 sm:grid-cols-3">
             {TIPS.map((t) => (
               <div key={t.title} className="rounded-field bg-cream-100 p-3.5 text-[13px]">
                 <b className="mb-1 block text-sm">{t.title}</b>

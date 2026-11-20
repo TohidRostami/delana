@@ -240,7 +240,7 @@ export function ProductPurchaseSection({
             size="pill-lg"
             disabled={!inStock}
             onClick={handleAdd}
-            className="hidden w-full sm:flex"
+            className="w-full sm:flex"
           >
             <ShoppingBag strokeWidth={1.7} />
             {addLabel}
@@ -261,7 +261,7 @@ export function ProductPurchaseSection({
       </div>
 
       {/* mobile buy bar */}
-      <div className="fixed inset-x-0 bottom-0 z-[15] flex items-center gap-3 border-t border-line-200 bg-white px-4 py-3 sm:hidden">
+      {/* <div className="fixed inset-x-0 bottom-0 z-[15] flex items-center gap-3 border-t border-line-200 bg-white px-4 py-3 sm:hidden">
         <div className="shrink-0 leading-tight">
           <div className="text-[11px] text-muted-600">قیمت کل</div>
           <div className="text-lg font-extrabold">
@@ -272,7 +272,7 @@ export function ProductPurchaseSection({
           <ShoppingBag strokeWidth={1.7} />
           {inStock ? "افزودن به سبد" : addLabel}
         </Button>
-      </div>
+      </div> */}
 
       <SizeGuideDialog
         open={guideOpen}

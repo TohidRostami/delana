@@ -15,7 +15,9 @@
  *   --url=<url>       آدرس دیتابیس Turso
  *   --token=<token>   توکن دسترسی Turso
  *   --force           اگر روی Turso جدول وجود داشت، جدول‌های هم‌نام را حذف و دوباره بساز
- *   --include-sessions  نشست‌ها و کدهای تأیید (session / verification) را هم منتقل کن
+ *   --include-sessions  داده‌ی نشست‌ها و کدهای تأیید (session / verification) را هم منتقل کن
+ *                    (خود جدول‌ها همیشه ساخته می‌شوند؛ فقط داده‌شان پیش‌فرض منتقل نمی‌شود)
+ *   --missing-only    فقط جدول‌هایی را که روی Turso وجود ندارند بساز؛ به جدول‌های موجود دست نمی‌زند
  *   --dry-run         فقط گزارش بده، چیزی ننویس
  *   --yes             بدون پرسش تأیید اجرا کن
  */
@@ -61,10 +63,12 @@ const tursoUrl = args.url || process.env.TURSO_DATABASE_URL;
 const tursoToken = args.token || process.env.TURSO_AUTH_TOKEN;
 const force = !!args.force;
 const dryRun = !!args["dry-run"];
-const skipTables = new Set(["_prisma_migrations"]);
+const missingOnly = !!args["missing-only"];
+const skipTables = new Set(["_prisma_migrations"]); // اصلاً منتقل نمی‌شوند
+const skipData = new Set(); // جدول ساخته می‌شود ولی داده‌اش کپی نمی‌شود
 if (!args["include-sessions"]) {
-  skipTables.add("session");
-  skipTables.add("verification");
+  skipData.add("session");
+  skipData.add("verification");
 }
 
 if (!existsSync(sourcePath)) fail(`فایل دیتابیس محلی پیدا نشد: ${sourcePath}`);
@@ -121,7 +125,10 @@ function sortByDependency(list) {
 const ordered = sortByDependency(tables);
 
 const counts = Object.fromEntries(
-  ordered.map((t) => [t.name, src.prepare(`SELECT COUNT(*) c FROM ${quote(t.name)}`).get().c]),
+  ordered.map((t) => [
+    t.name,
+    skipData.has(t.name) ? 0 : src.prepare(`SELECT COUNT(*) c FROM ${quote(t.name)}`).get().c,
+  ]),
 );
 
 // ───────────── target ─────────────
@@ -138,9 +145,12 @@ console.log(C.bold("\nانتقال دیتابیس به Turso"));
 console.log(`  مبدأ : ${sourcePath}`);
 console.log(`  مقصد : ${host}`);
 console.log(`  جدول‌ها:`);
-for (const t of ordered) console.log(`    - ${t.name.padEnd(16)} ${String(counts[t.name]).padStart(6)} ردیف`);
-if (skipTables.size > 2 || !args["include-sessions"])
-  console.log(C.dim("  (session و verification منتقل نمی‌شوند؛ کاربران باید دوباره وارد شوند)"));
+for (const t of ordered)
+  console.log(
+    `    - ${t.name.padEnd(16)} ${skipData.has(t.name) ? "  فقط ساختار" : String(counts[t.name]).padStart(6) + " ردیف"}`,
+  );
+if (skipData.size)
+  console.log(C.dim("  (داده‌ی session و verification کپی نمی‌شود؛ کاربران باید دوباره وارد شوند)"));
 
 // جدول‌های موجود در مقصد
 const remoteTables = (
@@ -155,11 +165,12 @@ if (remoteTables.length) {
     C.yellow(`\n⚠ در دیتابیس مقصد از قبل ${remoteTables.length} جدول وجود دارد: ${remoteTables.join(", ")}`),
   );
 }
-if (clash.length && !force) {
+if (clash.length && !force && !missingOnly) {
   fail(
     "جدول‌های هم‌نام روی Turso وجود دارند. برای جلوگیری از پاک شدن اطلاعات، اجرا متوقف شد.\n" +
-      "  اگر مطمئنید این دیتابیس خالی/قابل بازنویسی است، با --force دوباره اجرا کنید\n" +
-      "  (هشدار: --force جدول‌های هم‌نام را حذف می‌کند!).",
+    "  اگر فقط بعضی جدول‌ها کم است، با --missing-only فقط همان‌ها ساخته می‌شوند (بدون حذف چیزی).\n" +
+    "  اگر مطمئنید این دیتابیس خالی/قابل بازنویسی است، با --force دوباره اجرا کنید\n" +
+    "  (هشدار: --force جدول‌های هم‌نام را حذف می‌کند!).",
   );
 }
 
@@ -179,7 +190,18 @@ if (!args.yes) {
 // ───────────── run ─────────────
 const t0 = Date.now();
 
-if (clash.length) {
+// در حالت --missing-only فقط جدول‌های ناموجود ساخته می‌شوند
+const work = missingOnly ? ordered.filter((t) => !remoteTables.includes(t.name)) : ordered;
+const workNames = new Set(work.map((t) => t.name));
+if (missingOnly) {
+  console.log(
+    work.length
+      ? `  جدول‌های ناموجود روی Turso: ${work.map((t) => t.name).join(", ")}`
+      : C.green("  همهٔ جدول‌ها از قبل وجود دارند؛ کاری لازم نیست."),
+  );
+}
+
+if (!missingOnly && clash.length) {
   // از فرزند به والد حذف کن
   await db.execute("PRAGMA foreign_keys = OFF");
   const dropOrder = [...ordered].reverse().filter((t) => clash.includes(t.name));
@@ -188,15 +210,17 @@ if (clash.length) {
 }
 
 // ساخت جدول‌ها
-await db.batch(
-  ordered.map((t) => t.sql),
-  "write",
-);
-console.log(C.green(`✔ ${ordered.length} جدول ساخته شد`));
+if (work.length) {
+  await db.batch(
+    work.map((t) => t.sql),
+    "write",
+  );
+}
+console.log(C.green(`✔ ${work.length} جدول ساخته شد`));
 
 // داده‌ها
 const BATCH_ROWS = 100;
-for (const t of ordered) {
+for (const t of work) {
   const total = counts[t.name];
   if (!total) continue;
   const cols = src
@@ -232,17 +256,18 @@ for (const t of ordered) {
 }
 
 // ایندکس‌ها (بعد از درج داده تا سریع‌تر باشد)
-if (indexes.length) {
+const idxWork = indexes.filter((i) => workNames.has(i.tbl_name));
+if (idxWork.length) {
   await db.batch(
-    indexes.map((i) => i.sql),
+    idxWork.map((i) => i.sql),
     "write",
   );
-  console.log(C.green(`✔ ${indexes.length} ایندکس ساخته شد`));
+  console.log(C.green(`✔ ${idxWork.length} ایندکس ساخته شد`));
 }
 
 // ───────────── verify ─────────────
 let bad = 0;
-for (const t of ordered) {
+for (const t of work) {
   const r = await db.execute(`SELECT COUNT(*) c FROM ${quote(t.name)}`);
   const remote = Number(r.rows[0].c);
   if (remote !== counts[t.name]) {

@@ -17,7 +17,7 @@ export function MobileSearchBar() {
     return null;
   }
   return (
-    <div className="relative z-0 px-4 py-3.5 sm:px-7 lg:hidden">
+    <div className="relative z-40 px-4 py-3.5 sm:px-7 lg:hidden">
       <LiveSearch placeholder={siteConfig.search.placeholder} />
     </div>
   );

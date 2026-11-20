@@ -291,14 +291,6 @@ export function ShopMobileNav({
             index={5}
           />
         )}
-        <NavRow
-          href="/account/orders"
-          icon={Package}
-          label="پیگیری سفارش"
-          active={pathname.startsWith("/account/orders")}
-          onNavigate={onNavigate}
-          index={6}
-        />
         {isStaff && (
           <NavRow
             href="/admin"
